@@ -176,6 +176,8 @@ generateWordLists dataDirectory =
       passwordsMap = fromList $ zip passwords from0
 
     putStrLn "{-# LANGUAGE OverloadedStrings #-}\n"
+    putStrLn
+      "{- This file is machine-generated. Any changes may be ovewritten. -}\n"
     putStrLn "module Words where\n"
 
     putStrLn "import Codec.Compression.GZip ( decompress )"
@@ -515,11 +517,11 @@ writeMap :: T.Text               -- ^ name of the identifier (e.g.: "qwerty")
          -> Map T.Text [T.Text]  -- ^ the adjacency Map to emit
          -> T.Text               -- ^ the Haskell definition of the Map
 writeMap name adjacencyMap =
-    name <> " :: M.Map T.Text [T.Text]\n" <> name <> " = M.fromList [\n" <>
-      indent <> T.intercalate (",\n" <> indent) (map keyValueToString $
-        toList adjacencyMap) <> "\n" <> indent <> "]\n"
+    name <> " :: M.Map T.Text [T.Text]\n" <> name <> " = M.fromList\n  [ " <>
+      T.intercalate ("\n" <> indent <> ", ") (map keyValueToString $
+        toList adjacencyMap) <> "\n" <> indent <> "]"
   where
-    indent = "    "
+    indent = "  "
 
     keyValueToString :: (T.Text, [T.Text]) -> T.Text
     keyValueToString (key, value) =
