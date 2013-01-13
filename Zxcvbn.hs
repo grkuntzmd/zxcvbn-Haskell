@@ -23,22 +23,37 @@ import Data.Char ( isAsciiLower
                  , isDigit
                  )
 import Data.Int ( Int64 )
-import qualified Data.List as L ( foldl' )
-import Data.Map ( fromList
+import Data.List ( find
+                 , foldl'
+                 )
+import Data.Map ( empty
+                , fromList
                 , Map
+                , member
                 , size
+                , (!)
                 )
-import qualified Data.Map as M ( foldl'
-                               , lookup
-                               )
+import qualified Data.Map as M ( foldl' )
+import Data.Map.Lazy ( foldlWithKey' )
 import Data.Maybe ( fromJust )
-import qualified Data.Text as T ( foldl'
+import qualified Data.Text as T ( drop
+                                , filter
+                                , foldl'
+                                , length
                                 , null
+                                , pack
+                                , take
                                 , Text
+                                , toLower
                                 , unpack
                                 )
+import Data.Text.Read ( decimal )
+import Text.Regex ( Regex )
+import Text.Regex.Base.RegexLike ( AllMatches(getAllMatches)
+                                 , makeRegex
+                                 , matchTest
+                                 )
 import Text.Regex.PCRE ( (=~) )
-import Text.Regex.Base.RegexLike ( AllMatches(getAllMatches) )
 import Words ( dvorak
              , english
              , femaleNames
@@ -55,13 +70,13 @@ data DictionaryMatch =
   { dmDictionaryName :: T.Text
   , dmEntropy :: Double
   , dmExtra :: Maybe DictionaryMatchExtra
-  , dmI :: Int
-  , dmJ :: Int
+  , dmStart :: Int
+  , dmEnd :: Int
   , dmMatchedWord :: T.Text
   , dmPattern :: PatternType
   , dmRank :: Int
   , dmToken :: T.Text
-  }
+  } deriving Show
 
 data DictionaryMatchExtra
   = DateExtra
@@ -88,6 +103,11 @@ data DictionaryMatchExtra
     , spaShiftedCount :: Int
     , spaTurns :: Int
     }
+  deriving Show
+
+type Matcher = T.Text -> MatchList
+
+type MatchList = [DictionaryMatch]
 
 data PatternType
   = BruteForce
@@ -98,13 +118,10 @@ data PatternType
   | Sequence
   | Spatial
   | Year
-
-type MatchList = [DictionaryMatch]
+  deriving Show
 
 -- | Map from term to its one-based rank.
 type RankedDictionary = Map T.Text Int
-
-type Matcher = T.Text -> MatchList
 
 l33tTable :: Map Char String
 l33tTable = fromList
@@ -182,22 +199,22 @@ attackRate :: Int64
 attackRate = 350000000000
 
 -- Number of seconds in each time unit.
-secondsPerMinute :: Int
+secondsPerMinute :: Double
 secondsPerMinute = 60
 
-secondsPerHour :: Int
+secondsPerHour :: Double
 secondsPerHour = secondsPerMinute * 60
 
-secondsPerDay :: Int
+secondsPerDay :: Double
 secondsPerDay = secondsPerHour * 24
 
-secondsPerMonth :: Int
+secondsPerMonth :: Double
 secondsPerMonth = secondsPerDay * 31
 
-secondsPerYear :: Int
+secondsPerYear :: Double
 secondsPerYear = secondsPerMonth * 12
 
-secondsPerCentury :: Int
+secondsPerCentury :: Double
 secondsPerCentury = secondsPerYear * 100
 
 -- | Keyboard adjacency data (keys next to other keys on the keyboard
@@ -214,17 +231,17 @@ adjacencyGraphs = fromList
 -- DictionaryMatch structures
 dictionaryMatchers :: [Matcher]
 dictionaryMatchers =
-    [ buildMatcher "english"
-    , buildMatcher "femaleNames"
-    , buildMatcher "maleNames"
-    , buildMatcher "passwords"
-    , buildMatcher "surnames"
-    ]
+  [ buildMatcher "english"
+  , buildMatcher "femaleNames"
+  , buildMatcher "maleNames"
+  , buildMatcher "passwords"
+  , buildMatcher "surnames"
+  ]
   where
     buildMatcher :: T.Text -> Matcher
     buildMatcher name =
-      buildDictionaryMatcher name $ buildRankedDictionary $ fromJust $
-        M.lookup name frequencyLists
+      buildDictionaryMatcher name $ buildRankedDictionary $
+      frequencyLists ! name
 
 -- | Ranked list of words (common passwords, common surnames, etc.).
 frequencyLists :: Map T.Text [T.Text]
@@ -238,21 +255,21 @@ frequencyLists = fromList
 
 -- | Average number of neighbors for each key on a standard keyboard.
 keyboardAverageDegree :: Double
-keyboardAverageDegree = undefined
+keyboardAverageDegree = calculateAverageDegree qwerty
 
 -- | Number of keys that lead sequences of keys on a standard keyboard.
 keyboardStartingPositions :: Int
 keyboardStartingPositions =
-  size $ fromJust $ M.lookup "qwerty" adjacencyGraphs
+  size $ adjacencyGraphs ! "qwerty"
 
 -- | Average number of neighbors for each key on a standard keypad.
 keypadAverageDegree :: Double
-keypadAverageDegree = undefined
+keypadAverageDegree = calculateAverageDegree keypad
 
 -- | Number of keys that lead sequences of keys on a standard keypad.
 keypadStartingPositions :: Int
 keypadStartingPositions =
-  size $ fromJust $ M.lookup "keypad" adjacencyGraphs
+  size $ adjacencyGraphs ! "keypad"
 
 -- | All functions that match interesting sequences of characters.
 matchers :: [Matcher]
@@ -300,12 +317,12 @@ calculateBruteForceCardinality :: T.Text -- ^ candidate password
 calculateBruteForceCardinality password =
   let
     (lower, upper, digits, symbols) =
-      T.foldl' (\(l, u, d, s) char ->
+      T.foldl' (\(lower', upper', digits', symbols') char ->
         case char of
-          c | isAsciiLower c -> (True, u, d, s)
-            | isAsciiUpper c -> (l, True, d, s)
-            | isDigit c      -> (l, u, True, s)
-            | otherwise      -> (l, u, d, True))
+          c | isAsciiLower c -> (True, upper', digits', symbols')
+            | isAsciiUpper c -> (lower', True, digits', symbols')
+            | isDigit c      -> (lower', upper', True, symbols')
+            | otherwise      -> (lower', upper', digits', True))
         (False, False, False, False) password
   in
     (if lower then 26 else 0) +
@@ -326,7 +343,7 @@ calculateEntropy matcher =
     let
       entropyFunction =
         case dmPattern matcher of
-          BruteForce -> undefined
+          BruteForce -> error "Unexpected BruteForce in pattern match"
           Date -> dateEntropy
           Dictionary -> dictionaryEntropy
           Digits -> digitsEntropy
@@ -349,7 +366,8 @@ checkDate day month year =
       then (month, day)
       else (day, month)
   in
-    correctedDay <= 31 && correctedMonth <= 12 && 1900 <= year && year <= 2019
+    correctedDay <= 31 && correctedMonth <= 12 &&
+    (1900 <= year && year <= 2019 || 1 <= year && year <= 99)
 
 {- | Calculate the number of combinations in `n` items taken `k` at a time,
   using Int64 intermediate values to avoid arithmetic overflow.
@@ -361,8 +379,8 @@ choose n k
   | k > n     = 0
   | k == 0    = 1
   | otherwise =
-    fst $ L.foldl' (\(items, r) d -> (items - 1, r * items `div` d))
-      (n, 1 :: Int64) [1..k]
+    fst $ foldl' (\(items, r) d -> (items - 1, r * items `div` d))
+      (n, 1 :: Int64) [1 .. k]
 
 -- | Calculate the number of bits of entropy in a date substring.
 dateEntropy :: DictionaryMatch  -- ^ DictionaryMatch for which to calculate
@@ -375,30 +393,153 @@ dateEntropy matcher =
         (if (read (T.unpack y) :: Int) < 100 then 100 else numYears)) +
         (if T.null separator then 2 else 0)  -- Add 2 bits for separator
                                              -- character.
-    _ -> undefined
+    _ -> error "Unexpected pattern match (not DateExtra)"
 
 {- | Find all password substrings matching a date pattern (with and without
   separators).
 -}
 dateMatch :: Matcher
-dateMatch password = dateSepMatch password ++ dateWithoutSepMatch password
+dateMatch password = dateSepMatch ++ dateWithoutSepMatch
   where
     -- | Find all password substrings matching a date pattern with separators.
-    dateSepMatch :: Matcher
-    dateSepMatch pw =
+    dateSepMatch :: MatchList
+    dateSepMatch =
       let
-        matches =
+        suffixMatches =
           -- where the year is at the end (DDMMYYYY)
           map (\bounds @ (start, end) ->
-            undefined) $ findAll password dateYearSuffixPattern
-          -- let (_, _, _, [year, month, day]) = "2013/01/06" =~ "(\\d{4})/(\\d{2})/(\\d{2})" :: (String, String, String, [String])
+            let
+              [day, separator, month, year] =
+                findGroupsIn (substring password start $ Just end)
+                dateYearSuffixPattern
+            in
+              (day, month, year, separator, bounds)) $
+                findAll password dateYearSuffixPattern
+        prefixMatches =
+          -- where the year is at the beginning (YYYYDDMM)
+          map (\bounds @ (start, end) ->
+            let
+              [year, separator, month, day] =
+                findGroupsIn (substring password start $ Just end)
+                dateYearPrefixPattern
+            in
+              (day, month, year, separator, bounds)) $
+                findAll password dateYearPrefixPattern
       in
-        undefined
+        [ DictionaryMatch
+          { dmDictionaryName = ""
+          , dmEntropy = 0
+          , dmExtra = Just $ DateExtra day month separator year
+          , dmStart = start
+          , dmEnd = end
+          , dmMatchedWord = ""
+          , dmPattern = Date
+          , dmRank = 0
+          , dmToken = substring password start $ Just end
+          }
+        | (day, month, year, separator, (start, end)) <-
+            suffixMatches ++ prefixMatches
+        , checkDate (textToInt day) (textToInt month) (textToInt year)
+        ]
 
     -- | Find all password substrings matching a date pattern without
     -- separators.
-    dateWithoutSepMatch :: Matcher
-    dateWithoutSepMatch pw = undefined
+    dateWithoutSepMatch :: MatchList
+    dateWithoutSepMatch =
+      let
+        -- year at the beginning or end of date
+        dayMonthYearSplit =
+          concatMap (\bounds @ (start, end) ->
+            let
+              token = substring password start $ Just end
+              len = T.length token
+            in
+              if len <= 6
+              then [ -- 2-digit year prefix
+                     ( substring token 2 Nothing  -- day-month
+                     , substring token 0 $ Just 2  -- year
+                     , bounds
+                     )
+                   , -- 2-digit year suffix
+                     ( substring token 0 $ Just $ len - 2  -- day-month
+                     , substring token (len - 2) Nothing  -- year
+                     , bounds
+                     )
+                   , -- 4-digit year prefix
+                     ( substring token 4 Nothing
+                     , substring token 0 $ Just 4
+                     , bounds
+                     )
+                   , -- 4-digit year suffix
+                     ( substring token 0 $ Just 2
+                     , substring token 2 Nothing
+                     , bounds
+                     )
+                   ]
+              else [ -- 4-digit year prefix
+                     ( substring token 4 Nothing  -- day-month
+                     , substring token 0 $ Just 4  -- year
+                     , bounds
+                     )
+                   , -- 4-digit year suffix
+                     ( substring token 0 $ Just $ len - 4  -- day-month
+                     , substring token (len - 4) Nothing  -- year
+                     , bounds
+                     )
+                   ]) $ findAll password dateWithoutSepPattern
+        -- parse the day and month parts of the candidate date
+        dayMonthSplit =
+          concatMap (\(dayMonth, year, bounds) ->
+            case T.length dayMonth of
+              2 -> [ ( substring dayMonth 0 $ Just 1
+                     , substring dayMonth 1 Nothing
+                     , year
+                     , bounds)
+                   ]
+              3 -> [ ( substring dayMonth 0 $ Just 2
+                     , substring dayMonth 2 Nothing
+                     , year
+                     , bounds
+                     )
+                   , ( substring dayMonth 0 $ Just 1
+                     , substring dayMonth 1 Nothing
+                     , year
+                     , bounds
+                     )
+                   ]
+              4 -> [ ( substring dayMonth 0 $ Just 2
+                     , substring dayMonth 2 Nothing
+                     , year
+                     , bounds
+                     )
+                   , ( substring dayMonth 2 Nothing
+                     , substring dayMonth 0 $ Just 2
+                     , year
+                     , bounds
+                     )
+                   ]
+              _ -> error "Unknown dayMonth length") dayMonthYearSplit
+      in
+        -- for each candidate, if it is a legal date in the range 1900 - 2019,
+        -- include its substring
+        [ DictionaryMatch
+          { dmDictionaryName = ""
+          , dmEntropy = 0
+          , dmExtra = Just $ DateExtra day month "" year
+          , dmStart = start
+          , dmEnd = end
+          , dmMatchedWord = ""
+          , dmPattern = Date
+          , dmRank = 0
+          , dmToken = substring password start $ Just end
+          }
+        | (day, month, year, (start, end)) <- dayMonthSplit
+        , checkDate (textToInt day) (textToInt month) (textToInt year)
+        ]
+
+    -- | Convert a Text to an Int
+    textToInt :: T.Text -> Int
+    textToInt = fst . either error id . decimal
 
 {-- | Words in a word list have an entropy of log2(rank) + their upper case
   entropy + their l33t entropy.
@@ -406,31 +547,134 @@ dateMatch password = dateSepMatch password ++ dateWithoutSepMatch password
 dictionaryEntropy :: DictionaryMatch  -- ^ DictionaryMatch for which to
                                       -- calculate entropy
                   -> Double           -- ^ return calculated entropy
-dictionaryEntropy matcher = undefined
+dictionaryEntropy matcher = logBase2 (fromIntegral $ dmRank matcher) +
+  extraUppercaseEntropy + extraL33tEntropy
+  where
+    extraUppercaseEntropy :: Double
+    extraUppercaseEntropy =
+      let
+        word = T.unpack $ dmToken matcher
+      in
+        if matchTest (makeRegex allLowerPattern :: Regex) word
+        then 0.0
+        else
+          -- check if any of the regexes match `word`
+          let
+            matches =
+              any (\regex -> matchTest (makeRegex regex :: Regex) word)
+              [allUpperPattern, endUpperPattern, startUpperPattern]
+          in
+            if matches
+            then 1.0
+            else
+                let
+                  upper = fromIntegral $ length $ filter isAsciiUpper word
+                  lower = fromIntegral $ length $ filter isAsciiLower word
+                in
+                  foldl' (\result index ->
+                    fromIntegral (choose (upper + lower) index) + result)
+                    0.0 [0 .. (min upper lower)]
+
+    extraL33tEntropy  :: Double
+    extraL33tEntropy =
+      let
+        Just (L33tExtra l33t sub _) = dmExtra matcher
+      in
+        if not l33t
+        then 0.0
+        else
+          let
+            token = dmToken matcher
+            possibilities =
+              foldlWithKey' (\result subbed unsubbed ->
+                let
+                  subbed' =
+                    fromIntegral $ T.length $ T.filter (== subbed) token
+                  unsubbed' =
+                    fromIntegral $ T.length $ T.filter (== unsubbed) token
+                  current =
+                    foldl' (\result' index ->
+                      fromIntegral $ choose (subbed' + unsubbed') index)
+                      0.0 [0 .. (min subbed' unsubbed')]
+                in
+                  result + current) 0.0 sub
+            logPossibilities = logBase2 possibilities
+          in
+            if logPossibilities > 0 then logPossibilities else 1.0
 
 dictionaryMatch :: T.Text -- ^ dictionary name
                 -> T.Text -- ^ candidate password
                 -> RankedDictionary  -- ^ ranked dictionary
                 -> [DictionaryMatch] -- ^ return matches
-dictionaryMatch name password rankedDictionary = undefined
+dictionaryMatch name password rankedDictionary =
+  let
+    len = T.length password
+    passwordLower = T.toLower password
+  in
+    [ DictionaryMatch
+      { dmDictionaryName = name
+      , dmEntropy = 0
+      , dmExtra = Just $ L33tExtra False empty ""
+      , dmStart = start
+      , dmEnd = end + 1
+      , dmMatchedWord = word
+      , dmPattern = Dictionary
+      , dmRank = rankedDictionary ! word
+      , dmToken = substring password start $ Just (end + 1)
+      }
+    | start <- [0 .. (len - 1)]
+    , end <- [start .. (len - 1)]
+    , let word = substring passwordLower start $ Just (end + 1)
+    , member word rankedDictionary
+    ]
 
 -- | Digit sequences have an entropy of log2(10 ^ (number of digits)).
 digitsEntropy :: DictionaryMatch  -- ^ DictionaryMatch for which to calculate
                                   -- entropy
               -> Double           -- ^ return calculated entropy
-digitsEntropy matcher = undefined
+digitsEntropy matcher = logBase2 $ 10.0 ** dmEntropy matcher
 
 -- | Find all password substrings consisting of sequences of digits.
 digitsMatch :: Matcher
 digitsMatch password = undefined
 
+-- | Convert a number of seconds to a round number of larger units.
+displayTime :: Double  -- ^ number of seconds
+            -> T.Text  -- ^ return the display Text
+displayTime seconds =
+  case findUnits of
+    Just (0.0, "instant") -> "instant"
+    Just (limit, name) ->
+      T.pack $ show (1 + ceiling (seconds / limit) :: Int) ++ " " ++ name
+    Nothing -> "centuries"
+  where
+    findUnits =
+      if seconds < secondsPerMinute
+      then Just (0.0, "instant")
+      else
+        find (\(limit, _) -> seconds < limit)
+        [ (secondsPerHour, "minutes")
+        , (secondsPerDay, "hours")
+        , (secondsPerMonth, "days")
+        , (secondsPerYear, "months")
+        , (secondsPerCentury, "years")
+        ]
+
 -- | Find bounds (i, j) of all substrings of password that match the regex.
 findAll :: T.Text  -- ^ password to find
         -> String  -- regex pattern to find in password
-        -> [(Int, Int)]  -- ^ List of bounds of matches [start, end)
+        -> [(Int, Int)]  -- ^ List of bounds of matches (start closed, end open)
 findAll password regex =
   map (\(start, len) -> (start, start + len)) $
     getAllMatches $ T.unpack password =~ regex
+
+-- | Find all groups in Text matching a Regex.
+findGroupsIn :: T.Text    -- ^ Text to search
+             -> String    -- ^ regex pattern
+             -> [T.Text]  -- ^ substrings found in regex groups (1, ...)
+findGroupsIn text regex =
+  case T.unpack text =~ regex :: (String, String, String, [String]) of
+    (_, _, _, groups) -> map T.pack groups
 
 -- | Infinite list of integers starting with zero.
 from0 :: [Int]
@@ -438,7 +682,7 @@ from0 = [0..]
 
 -- | Infinite list of integers starting with one.
 from1 :: [Int]
-from1 = [0..]
+from1 = [1..]
 
 -- | Find all L33t substitutions in the password.
 l33tMatch :: Matcher
@@ -482,6 +726,19 @@ spatialEntropy matcher = undefined
 -- | Find sequences of characters that are on adjacent keys on the keyboard.
 spatialMatch :: Matcher
 spatialMatch password = undefined
+
+-- | Retrieve a substring of a Text. If the end parameter is Nothing, return
+-- the substring from the start to the end of the string.
+substring :: T.Text     -- ^ the Text to split
+          -> Int        -- ^ zero-based offset of start of substring (closed)
+          -> Maybe Int  -- ^ zero-based offset of end of substring (open)
+          -> T.Text     -- ^ return the substring
+substring string start maybeEnd =
+  case maybeEnd of
+    Just end -> T.take (end - start) dropBeginning
+    Nothing -> dropBeginning
+  where
+    dropBeginning = T.drop start string
 
 -- | Calculate the entropy of a year value.
 yearEntropy :: DictionaryMatch  -- ^ DictionaryMatch for which to calculate

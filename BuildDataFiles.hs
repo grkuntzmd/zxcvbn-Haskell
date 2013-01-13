@@ -125,9 +125,9 @@ buildGraph layout slanted =
     fromList $ concat $ foldrWithKey (\(x, y) chars acc ->
       map (\char ->
         (T.singleton char,
-          map (\coord ->
-            findWithDefault "" coord positionTable) $
-              adjacencyFunction x y)) (T.unpack chars) : acc)
+        map (\coord ->
+          findWithDefault "" coord positionTable) $
+          adjacencyFunction x y)) (T.unpack chars) : acc)
       [] positionTable
 
 dvorak :: T.Text
@@ -155,7 +155,7 @@ filterDup terms termsMap maps =
     filter (\term ->
       all (\theMap ->
         fromJust (M.lookup term termsMap) <
-          findWithDefault maxRank term theMap) maps) terms
+        findWithDefault maxRank term theMap) maps) terms
 
 -- | Compose filterAscii and filterShort.
 filtered :: [T.Text]  -- ^ terms to filter
@@ -254,31 +254,31 @@ generateWordLists dataDirectory =
 
     TIO.putStrLn $ writeList "english" $
       filterDup english englishMap
-        [surnamesMap, maleNamesMap, femaleNamesMap, passwordsMap]
+      [surnamesMap, maleNamesMap, femaleNamesMap, passwordsMap]
 
     putStrLn ""
 
     TIO.putStrLn $ writeList "femaleNames" $
       filterDup femaleNames femaleNamesMap
-        [englishMap, surnamesMap, maleNamesMap, passwordsMap]
+      [englishMap, surnamesMap, maleNamesMap, passwordsMap]
 
     putStrLn ""
 
     TIO.putStrLn $ writeList "maleNames" $
       filterDup maleNames maleNamesMap
-        [englishMap, surnamesMap, femaleNamesMap, passwordsMap]
+      [englishMap, surnamesMap, femaleNamesMap, passwordsMap]
 
     putStrLn ""
 
     TIO.putStrLn $ writeList "passwords" $
       filterDup passwords passwordsMap
-        [englishMap, surnamesMap, maleNamesMap, femaleNamesMap]
+      [englishMap, surnamesMap, maleNamesMap, femaleNamesMap]
 
     putStrLn ""
 
     TIO.putStrLn $ writeList "surnames" $
       filterDup surnames surnamesMap
-        [englishMap, maleNamesMap, femaleNamesMap, passwordsMap]
+      [englishMap, maleNamesMap, femaleNamesMap, passwordsMap]
 
     return ()
 
@@ -314,19 +314,19 @@ getRankedCensusNames :: FilePath  -- ^ data directory name
                      -> IO ([T.Text], [T.Text], [T.Text])
                         -- ^ (surnames, maleNames, femaleName)
 getRankedCensusNames dataDirectory = do
-    surnames <- do
-      contents <-
-        liftM (T.lines . T.pack) $ readFile $
-          printf censusTempl ("surnames" :: String)
-      return $
-        filtered $
-        map (\(name, _) -> T.toLower name) $
-        takeWhile (\(_, frequency) -> frequency < surnameCutoffPercentile) $
-        map matchLine contents
-    maleNames <- liftM filtered $ readCensusFile "male_first"
-    femaleNames <- liftM filtered $ readCensusFile "female_first"
+  surnames <- do
+    contents <-
+      liftM (T.lines . T.pack) $ readFile $
+      printf censusTempl ("surnames" :: String)
+    return $
+      filtered $
+      map (\(name, _) -> T.toLower name) $
+      takeWhile (\(_, frequency) -> frequency < surnameCutoffPercentile) $
+      map matchLine contents
+  maleNames <- liftM filtered $ readCensusFile "male_first"
+  femaleNames <- liftM filtered $ readCensusFile "female_first"
 
-    return (surnames, maleNames, femaleNames)
+  return (surnames, maleNames, femaleNames)
   where
     censusTempl = dataDirectory ++ "/us_census_2000_%s.txt"
 
@@ -338,7 +338,7 @@ getRankedCensusNames dataDirectory = do
       let
         [_, name, frequency] =
           getAllTextSubmatches
-              (T.unpack line =~ linePattern :: (AllTextSubmatches [] String))
+            (T.unpack line =~ linePattern :: (AllTextSubmatches [] String))
       in
         (T.pack name, read frequency :: Double)
 
@@ -346,7 +346,7 @@ getRankedCensusNames dataDirectory = do
     readCensusFile suffix = do
       contents <-
         liftM (T.lines . T.pack) $ readFile $ printf censusTempl $
-          T.unpack suffix
+        T.unpack suffix
       return $ map (T.toLower . fst . matchLine) contents
 
     surnameCutoffPercentile = 85  -- ^ ie7 can't handle huge lists - cut surname
@@ -356,8 +356,8 @@ getRankedCommonPasswords:: FilePath     -- ^ data directory name
                         -> IO [T.Text]  -- ^ return list of common passwords in
                                         -- order by frequency
 getRankedCommonPasswords dataDirectory = do
-    contents <- liftM (T.lines . T.pack) $ readFile commonPasswords
-    return $ filtered $ filter (not . T.null) contents
+  contents <- liftM (T.lines . T.pack) $ readFile commonPasswords
+  return $ filtered $ filter (not . T.null) contents
   where
     commonPasswords = dataDirectory ++ "/common_passwords.txt"
 
@@ -379,12 +379,12 @@ getRankedEnglish dataDirectory = do
   let
     tvListUrl =
       "http://en.wiktionary.org/wiki/" ++
-        "Wiktionary:Frequency_lists/TV/2006/%s"
+      "Wiktionary:Frequency_lists/TV/2006/%s"
     englishTempl = dataDirectory ++ "/tv_and_movie_freqlist%s.html"
 
     -- Create a list of index suffixes (e.g. "1-1000", "1001-2000", ...).
     indices =
-        map format1 [0..9] ++ map format2 [0..14] ++ ["40001-41284" :: String]
+      map format1 [0..9] ++ map format2 [0..14] ++ ["40001-41284" :: String]
       where
         format1 index =
           printf "%d-%d" ((index * 1000 + 1) :: Int)
@@ -505,7 +505,7 @@ parseWikiTerms filePath html =
     let
       rootElement =
         docContent (posInNewCxt filePath Nothing) $ htmlParse filePath $
-          T.unpack html
+        T.unpack html
       terms = (deep $ tag "tr" /> tag "td" /> tag "a" /> txt) rootElement
     in
       map (T.pack . render . content) terms
@@ -529,11 +529,11 @@ writeList :: T.Text    -- ^ name of the identifier (e.g.: "english")
           -> [T.Text]  -- ^ terms to include in the identifier list
           -> T.Text    -- ^ Text containing the definition of the identifier
 writeList name termList =
-    let
-      split = serialize $ map T.unpack termList
-    in
-      name <> " :: [T.Text]\n" <> name <> " =\n" <>
-        "  map T.pack $ deserialize\n" <> quoteChunks 4 split
+  let
+    split = serialize $ map T.unpack termList
+  in
+    name <> " :: [T.Text]\n" <> name <> " =\n" <>
+      "  map T.pack $ deserialize\n" <> quoteChunks 4 split
   where
     -- | Quote a list of Text chunks as one multiline Text
     quoteChunks :: Int       -- indent amount
@@ -551,13 +551,13 @@ writeMap :: T.Text               -- ^ name of the identifier (e.g.: "qwerty")
          -> Map T.Text [T.Text]  -- ^ the adjacency Map to emit
          -> T.Text               -- ^ the Haskell definition of the Map
 writeMap name adjacencyMap =
-    name <> " :: M.Map T.Text [T.Text]\n" <> name <> " = M.fromList\n  [ " <>
-      T.intercalate ("\n" <> indent <> ", ") (map keyValueToString $
-        toList adjacencyMap) <> "\n" <> indent <> "]"
+  name <> " :: M.Map T.Text [T.Text]\n" <> name <> " = M.fromList\n  [ " <>
+    T.intercalate ("\n" <> indent <> ", ") (map keyValueToString $
+    toList adjacencyMap) <> "\n" <> indent <> "]"
   where
     indent = "  "
 
     keyValueToString :: (T.Text, [T.Text]) -> T.Text
     keyValueToString (key, value) =
       "(" <> T.pack (show key) <> ", [" <>
-        T.intercalate ", " (map (T.pack . show) value) <> "])"
+      T.intercalate ", " (map (T.pack . show) value) <> "])"
