@@ -27,6 +27,7 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 executable BuildDataFiles
+  hs-source-dirs:      src
   main-is:             BuildDataFiles.hs
   ghc-options:         -O2 -Wall -Werror
   build-depends:       base == 4.5.*
@@ -44,6 +45,7 @@ executable BuildDataFiles
                      , zlib >= 0.5.4.0
 
 executable zxcvbn
+  hs-source-dirs:      src
   main-is:             Main.hs
   ghc-options:         -O2 -Wall
   build-depends:       base == 4.5.*

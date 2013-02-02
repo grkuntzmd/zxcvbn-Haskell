@@ -586,7 +586,7 @@ dictionaryEntropy matcher = logBase2 (fromIntegral $ dmRank matcher) +
           let
             token = dmToken matcher
             possibilities =
-              foldlWithKey' (\result subbed unsubbed ->
+              logBase2 $ foldlWithKey' (\result subbed unsubbed ->
                 let
                   subbed' =
                     fromIntegral $ T.length $ T.filter (== subbed) token
@@ -598,9 +598,8 @@ dictionaryEntropy matcher = logBase2 (fromIntegral $ dmRank matcher) +
                       0.0 [0 .. (min subbed' unsubbed')]
                 in
                   result + current) 0.0 sub
-            logPossibilities = logBase2 possibilities
           in
-            if logPossibilities > 0 then logPossibilities else 1.0
+            if possibilities > 0 then possibilities else 1.0
 
 dictionaryMatch :: T.Text -- ^ dictionary name
                 -> T.Text -- ^ candidate password

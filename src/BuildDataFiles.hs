@@ -409,11 +409,11 @@ getRankedEnglish dataDirectory = do
     let
       request =
         Request
-          { rqURI = fromJust $ parseURI url  -- URI assumed well-formed
-          , rqMethod = GET
-          , rqHeaders = [Header HdrUserAgent "zxcvbn"]
-          , rqBody = ""
-          }
+        { rqURI = fromJust $ parseURI url  -- URI assumed well-formed
+        , rqMethod = GET
+        , rqHeaders = [Header HdrUserAgent "zxcvbn"]
+        , rqBody = ""
+        }
     hPutStrLn stderr $ "Downloading " ++ show url
     resp <- simpleHTTP request
     case resp of
